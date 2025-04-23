@@ -5,7 +5,6 @@ __PID="$$"
 __OUT="${__CWD}/output"
 __SRC="${__CWD}/.sources"
 __LOG="${__OUT}/${__SLF}.${__PID}.log"
-
 __KNOWN_PROJECT_NAMES=(
   "UnofficialOS"
   "GamemtOS"
@@ -18,11 +17,10 @@ __KNOWN_PROJECT_NAMES=(
 )
 
 source "${__CWD}/functions"
-
 __set_primary_project "git@github.com:tito-me-doe/UnofficialOS.git" "uos-realign"
 __set_secondary_project "git@github.com:gamemtfw/distribution.git" "main"
 
-__task_begin "Moving files / directories to match ${__PROJECT1_NAME}"
+__task_begin "Restructuring ${__PROJECT2_NAME} to mirror ${__PROJECT1_NAME}"
   for __DEVICE_PATH in "${__PROJECT2_PATH}/device_overrides"/*; do
     __DEVICE="$( basename "${__DEVICE_PATH}" )"
     for __OVERRIDE_PATH in "${__DEVICE_PATH}"/*; do
