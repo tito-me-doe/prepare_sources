@@ -13,7 +13,7 @@ __KNOWN_PROJECT_NAMES=(
   "LibreELEC"
   "ROCKNIX"
   "PAN4ELEC"
-  "ANBERLEC"
+  "AMBERELEC"
 )
 
 source "${__CWD}/functions"
