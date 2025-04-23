@@ -1,0 +1,318 @@
+#!/bin/bash
+
+if [ -d "${__OUT}" ]; then
+  rm -rf "${__OUT}"
+fi
+
+if [ ! -d "${__OUT}" ]; then
+  mkdir -p "${__OUT}"
+fi
+
+if [ ! -d "${__SRC}" ]; then
+  mkdir -p "${__SRC}"
+fi
+
+if [ -f "${__LOG}" ]; then
+  rm -rf "${__LOG}"
+fi
+
+if [ ! -f "${__LOG}" ]; then
+  touch "${__LOG}"
+fi
+
+__relative() {
+  if [ -z "$1" ]; then
+    return
+  fi
+  if [ -z "${__PROJECT1_PATH}" ]; then
+    __PROJECT1_PATH="${__OUT}"
+    __PROJECT1_NAME="."
+  fi
+  if [ -z "${__PROJECT2_PATH}" ]; then
+    __PROJECT2_PATH="${__OUT}"
+    __PROJECT2_NAME="."
+  fi
+  echo "$1" | sed -e "s|${__PROJECT1_PATH}|${__PROJECT1_NAME}|g" -e "s|${__PROJECT2_PATH}|${__PROJECT2_NAME}|g"
+}
+
+__to_p1() {
+  echo "$1" | sed "s|${__PROJECT2_DIRNAME}|${__PROJECT1_DIRNAME}|g"
+}
+
+__to_p2() {
+  echo "$1" | sed "s|${__PROJECT1_DIRNAME}|${__PROJECT2_DIRNAME}|g"
+}
+
+__is_p1() {
+  if [[ "$1" == *"${__PROJECT1_DIRNAME}"* ]]; then
+    return 1
+  else
+    return 0
+  fi
+}
+
+__is_p2() {
+  if [[ "$1" == *"${__PROJECT2_DIRNAME}"* ]]; then
+    return 1
+  else
+    return 0
+  fi
+}
+
+__echo() {
+  if [ -z "$1" ]; then
+    return
+  fi
+  local __OUTPUT="$(__relative "$1")"
+  echo -e "${__OUTPUT}" > /dev/tty
+}
+
+__print() {
+  if [ -z "$1" ]; then
+    return
+  fi
+  local __OUTPUT="$(__relative "$1")"
+  printf "${__OUTPUT}" > /dev/tty
+}
+
+__log() {
+  if [ -z "$1" ]; then
+    return
+  fi
+  local __OUTPUT="$(__relative "$1")"
+  echo -e "${__OUTPUT}" >> "${__LOG}"
+}
+
+__task_begin() {
+  __print "$1 ."
+  __log "## $(date +%Y%m%d%H%M%S) - $1"
+}
+
+__task_advance() {
+  __print " ."
+}
+
+__task_complete() {
+  __print " done\n"
+}
+
+__mkdir() {
+  if [ -d "$1" ]; then
+    return
+  fi
+  mkdir -p "$1" 2>> "${__LOG}"
+  __log "mkdir -p \"$1\""
+  __task_advance
+}
+
+__mv() {
+  local __DEST_DIR="$(dirname "$2")"
+  if [ ! -d "${__DEST_DIR}" ]; then
+    __mkdir "${__DEST_DIR}"
+  fi
+  mv "$1" "$2" 2>> "${__LOG}"
+  __log "mv \"$1\" \"$2\""
+  __task_advance
+}
+
+__rm() {
+  rm -rf "$1" 2>> "${__LOG}"
+  __log "rm -rf \"$1\""
+  __task_advance
+}
+
+__touch() {
+  touch "$1" 2>> "${__LOG}"
+  __log "touch \"$1\""
+  __task_advance
+}
+
+__cp() {
+  local __DEST_DIR="$(dirname "$2")"
+  if [ ! -d "${__DEST_DIR}" ]; then
+    __mkdir "${__DEST_DIR}"
+  fi
+  __log "cp -rf \"$1\" \"$2\""
+  cp -rf "$1" "$2" 2>> "${__LOG}"
+  __task_advance
+}
+
+__cp_if_exists() {
+  if [ "$(__is_p1 "$1")" == "1" ]; then
+    __PROJECT2_FILE="$(__to_p2 "$1")"
+    if [ -f "$__PROJECT2_FILE" ]; then
+      __cp "$1" "$2"
+    fi
+  elif [ "$(__is_p2 "$1")" == "1" ]; then
+    __PROJECT1_FILE="$(__to_p1 "$1")"
+    if [ -f "$__PROJECT1_FILE" ]; then
+      __cp "$1" "$2"
+    fi
+  fi
+}
+
+__push_path() {
+  local __SOURCE="$1"
+  if [ "$(__is_p1 "$__SOURCE")" == "1" ]; then
+    __PROJECT2_FILE="$(__to_p2 "$__SOURCE")"
+    __cp "$__SOURCE" "$__PROJECT2_FILE"
+  elif [ "$(__is_p2 "$__SOURCE")" == "1" ]; then
+    __PROJECT1_FILE="$(__to_p1 "$__SOURCE")"
+    __cp "$__SOURCE" "$__PROJECT1_FILE"
+  fi
+}
+
+__pull_path() {
+  local __SOURCE="$1"
+  if [ "$(__is_p1 "$__SOURCE")" == "1" ]; then
+    __PROJECT2_FILE="$(__to_p2 "$__SOURCE")"
+    if [ -f "$__PROJECT2_FILE" ]; then
+      __cp "$__PROJECT2_FILE" "$__SOURCE"
+    fi
+  elif [ "$(__is_p2 "$__SOURCE")" == "1" ]; then
+    __PROJECT1_FILE="$(__to_p1 "$__SOURCE")"
+    if [ -f "$__PROJECT1_FILE" ]; then
+      __cp "$__PROJECT1_FILE" "$__SOURCE"
+    fi
+  fi
+}
+
+__insert_text() {
+  local __TEXT="$1"
+  local __FILE_NAME="$2"
+  local __LINE_NUMBER="$3"
+  if [ -z "${__LINE_NUMBER}" ]; then
+    __LINE_NUMBER="1"
+  fi
+  __log "sed -i \"${__LINE_NUMBER}i ${__TEXT}\" \"${__FILE_NAME}\""
+  __TEXT="$( echo "${__TEXT}" | sed 's| |\ |g' )"
+  sed -i "${__LINE_NUMBER}i ${__TEXT}" "${__FILE_NAME}" 2>> "${__LOG}"
+  __task_advance
+}
+
+__extract_variable() {
+  local __FILE_NAME="$1"
+  local __VARIABLE_NAME="$2"
+  local __VARIABLE_VALUE="$( grep -oP "${__VARIABLE_NAME}=\"([^\"]+)\"" "${__FILE_NAME}" | head -n 1 | cut -d= -f2 | tr -d '"' )"
+  __log "grep -oP \"${__VARIABLE_NAME}=\"([^\"]+)\"\" \"${__FILE_NAME}\" | head -n 1 | cut -d= -f2 | tr -d '\"'"
+  echo "${__VARIABLE_VALUE}"
+  __task_advance
+}
+
+__replace_variable() {
+  local __FILE_NAME="$1"
+  local __VARIABLE_NAME="$2"
+  local __NEW_VALUE="$3"
+  __log "sed -i \"s|${__VARIABLE_NAME}=\"[^\"]*\"|${__VARIABLE_NAME}=\"${__NEW_VALUE}\"|g\" \"${__FILE_NAME}\""
+  sed -i "s|${__VARIABLE_NAME}=\"[^\"]*\"|${__VARIABLE_NAME}=\"${__NEW_VALUE}\"|g" "${__FILE_NAME}" 2>> "${__LOG}"
+  __task_advance
+}
+
+__sync_project_names() {
+# 0) setup variables
+  local full_patch filtered_patch parent_dir
+  parent_dir="$(dirname "${__PROJECT2_PATH}")" # should be ~/projects/output
+  full_patch=$(mktemp "/tmp/full_patch.XXXXXX")         || { __log "ERROR: mktemp full_patch"; return 1; }
+  filtered_patch=$(mktemp "/tmp/filtered_patch.XXXXXX") || { __log "ERROR: mktemp filtered_patch"; rm -f "$full_patch"; return 1; }
+  __task_advance
+
+# 1) diff from common parent so paths are relative
+  pushd "$parent_dir" >/dev/null
+  diff -ruN "${__PROJECT2_DIRNAME}" "${__PROJECT1_DIRNAME}" >"$full_patch"
+  popd  >/dev/null
+  __task_advance
+
+# 2) keep only hunks whose added lines (+) contain "unofficial" (case‑insensitive)
+  awk '
+    BEGIN { in_hunk=0; hdr=""; body=""; keep=0 }
+    /^diff /   { hdr=$0 "\n"; next }
+    /^--- /    { hdr=hdr $0 "\n"; next }
+    /^\+\+\+/  { hdr=hdr $0 "\n"; next }
+    /^@@/ {
+      if (in_hunk && keep) printf "%s%s", hunk_hdr, hunk_body
+      in_hunk=1; keep=0
+      hunk_hdr=hdr $0 "\n"; hunk_body=""; next
+    }
+    {
+      if (in_hunk) {
+        hunk_body=hunk_body $0 "\n"
+        if ($0 ~ /^\+[^+]/ && tolower($0) ~ /unofficial/) keep=1
+      }
+    }
+    END {
+      if (in_hunk && keep) printf "%s%s", hunk_hdr, hunk_body
+    }
+  ' "$full_patch" >"$filtered_patch"
+  __task_advance
+
+# 3) apply into Project2, stripping one leading path component
+  patch -p1 -d "${__PROJECT2_PATH}" <"$filtered_patch" 1>>"${__LOG}" 2>>"${__LOG}"
+  __task_advance
+
+# 4) cleanup
+  __rm -f "$full_patch" "$filtered_patch"
+}
+
+__clone_repository() {
+  local __REPO_URL="$1"
+  local __BRANCH="$2"
+  local __LATEST_COMMIT="$( git ls-remote "${__REPO_URL}" "${__BRANCH}" | awk '{print $1}' )"
+  local __PROJECT_NAME="$( basename "${__REPO_URL}" | cut -d. -f1 )"
+  local __SOURCE="${__CWD}/.sources/${__PROJECT_NAME}-${__LATEST_COMMIT}"
+  local __DEST="${__CWD}/output/${__PROJECT_NAME}-${__LATEST_COMMIT}"
+  __task_begin "Get ${__PROJECT_NAME}@${__LATEST_COMMIT}"
+    if [ -d "${__DEST}" ]; then
+      __rm "${__DEST}"
+    fi
+    if [ -d "${__SOURCE}" ]; then
+      __cp "${__SOURCE}" "${__DEST}"
+    else
+      __log "git clone -b \"${__BRANCH}\" \"${__REPO_URL}\" \"${__DEST}\""
+      git clone -b "${__BRANCH}" "${__REPO_URL}" "${__DEST}" 2>> "${__LOG}"
+      __task_advance
+      __cp "${__DEST}" "${__SOURCE}"
+    fi
+  __task_complete
+}
+
+__set_primary_project() {
+  local __REPO_URL="$1"
+  local __BRANCH="$2"
+  local __PROJECT_NAME="$( basename "${__REPO_URL}" | cut -d. -f1 )"
+  local __LATEST_COMMIT="$( git ls-remote "${__REPO_URL}" "${__BRANCH}" | awk '{print $1}' )"
+  local __SOURCE="${__CWD}/.sources/${__PROJECT_NAME}-${__LATEST_COMMIT}"
+  local __DEST="${__CWD}/output/${__PROJECT_NAME}-${__LATEST_COMMIT}"
+  if [ ! -d "${__CWD}/.sources" ]; then
+    __mkdir "${__CWD}/.sources"
+  fi
+  if [ ! -d "${__CWD}/output" ]; then
+    __mkdir "${__CWD}/output"
+  fi
+  __PROJECT1_NAME="${__PROJECT_NAME}"
+  __PROJECT1_DIRNAME="$( basename "${__DEST}" )"
+  __PROJECT1_BRANCH="${__BRANCH}"
+  __PROJECT1_REPO="${__REPO_URL}"
+  __PROJECT1_PATH="${__DEST}"
+  __clone_repository "${__REPO_URL}" "${__BRANCH}" "${__DEST}"
+}
+
+__set_secondary_project() {
+  local __REPO_URL="$1"
+  local __BRANCH="$2"
+  local __PROJECT_NAME="$( basename "${__REPO_URL}" | cut -d. -f1 )"
+  local __LATEST_COMMIT="$( git ls-remote "${__REPO_URL}" "${__BRANCH}" | awk '{print $1}' )"
+  local __SOURCE="${__CWD}/.sources/${__PROJECT_NAME}-${__LATEST_COMMIT}"
+  local __DEST="${__CWD}/output/${__PROJECT_NAME}-${__LATEST_COMMIT}"
+  if [ ! -d "${__CWD}/.sources" ]; then
+    __mkdir "${__CWD}/.sources"
+  fi
+  if [ ! -d "${__CWD}/output" ]; then
+    __mkdir "${__CWD}/output"
+  fi
+  __PROJECT2_NAME="${__PROJECT_NAME}"
+  __PROJECT2_DIRNAME="$( basename "${__DEST}" )"
+  __PROJECT2_BRANCH="${__BRANCH}"
+  __PROJECT2_REPO="${__REPO_URL}"
+  __PROJECT2_PATH="${__DEST}"
+  __clone_repository "${__REPO_URL}" "${__BRANCH}" "${__DEST}"
+}
