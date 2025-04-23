@@ -17,7 +17,7 @@ __KNOWN_PROJECT_NAMES=(
 )
 
 source "${__CWD}/functions"
-__set_primary_project "git@github.com:tito-me-doe/UnofficialOS.git" "uos-realign"
+__set_primary_project "git@github.com:RetroGFX/UnofficialOS.git" "uos-realign"
 __set_secondary_project "git@github.com:gamemtfw/distribution.git" "main"
 
 __task_begin "Restructuring ${__PROJECT2_NAME} to mirror ${__PROJECT1_NAME}"
