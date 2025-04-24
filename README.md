@@ -8,7 +8,7 @@ At this time, this is very specific to RetroGFX:UnofficialOS, but all PRs are
 welcome
 
 The script produces a diffing environment for the two projects, for comparing
-and integrating differences, without less noise
+and integrating differences, with less noise
 
 The script uses functions defined in the "functions" file, which is expected
 to be in the same directory
