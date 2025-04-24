@@ -1,39 +1,206 @@
 #!/bin/bash
-__SLF="$( basename "$0" )"
-__CWD="$( realpath "$( dirname "$0" )" )"
-__PID="$$"
-__OUT="${__CWD}/output"
-__SRC="${__CWD}/.sources"
-__LOG="${__OUT}/${__SLF}.${__PID}.log"
-__KNOWN_PROJECT_NAMES=(
+__PROJECT1_REPO_URL="git@github.com:RetroGFX/UnofficialOS.git"
+__PROJECT1_BRANCH="uos-realign"
+
+__PROJECT2_REPO_URL="git@github.com:gamemtfw/distribution.git"
+__PROJECT2_BRANCH="main"
+
+__REPLACE_NAMES=(
   "UnofficialOS"
   "GamemtOS"
   "GamemtFW"
   "JELOS"
   "LibreELEC"
   "ROCKNIX"
-  "PAN4ELEC"
-  "AMBERELEC"
 )
 
-source "${__CWD}/functions"
-__set_primary_project "git@github.com:RetroGFX/UnofficialOS.git" "uos-realign"
-__set_secondary_project "git@github.com:gamemtfw/distribution.git" "main"
+__PATHS_TO_PULL=(
+  "config/addon"
+  "config/docker"
+  "config/functions"
+  "config/noobs"
+  "config/options"
+  "distributions"
+  "Dockerfile"
+  "documentation"
+  "licenses"
+  "post-update"
+  "templates"
+  "tools_host"
+)
 
-__task_begin "Restructuring ${__PROJECT2_NAME} to mirror ${__PROJECT1_NAME}"
-  for __DEVICE_PATH in "${__PROJECT2_PATH}/device_overrides"/*; do
-    __DEVICE="$( basename "${__DEVICE_PATH}" )"
-    for __OVERRIDE_PATH in "${__DEVICE_PATH}"/*; do
-      if [ -d "${__OVERRIDE_PATH}" ]; then
-        __OVERRIDE_NAME="$( basename "${__OVERRIDE_PATH}" )"
-        if [ -d "${__PROJECT2_PATH}/${__OVERRIDE_NAME}_base" ]; then
-          __mv "${__PROJECT2_PATH}/${__OVERRIDE_NAME}_base" "${__PROJECT2_PATH}/${__OVERRIDE_NAME}"
-        fi
-      fi
-      __cp "${__OVERRIDE_PATH}" "${__PROJECT2_PATH}/"
+__SLF="$( basename "$0" )"
+__CWD="$( realpath "$( dirname "$0" )" )"
+__PID="$$"
+__OUT="${__CWD}/output"
+__SRC="${__CWD}/.sources"
+__LOG="${__OUT}/${__SLF}.${__PID}.log"
+__TMP="$(mktemp -d)"
+
+# cleanup TMP on exit
+for __KILLSIG in HUP INT QUIT TERM; do
+  trap "rm -rf ${__TMP}" "${__KILLSIG}"
+done
+
+source "${__CWD}/functions"
+
+__set_primary_project "${__PROJECT1_REPO_URL}" "${__PROJECT1_BRANCH}"
+__set_secondary_project "${__PROJECT2_REPO_URL}" "${__PROJECT2_BRANCH}"
+
+__task_begin "Rearranging ${__PROJECT2_NAME} to match ${__PROJECT1_NAME}"
+# move device overrides to tmp directory
+  if [ -e "${__PROJECT2_PATH}/device_overrides" ]; then
+    __mv "${__PROJECT2_PATH}/device_overrides" "${__TMP}/"
+  fi
+# rename _base directories
+  for __PATH in "${__PROJECT2_PATH}"/*_base; do
+    __NAME="$( basename "${__PATH}" | cut -d_ -f1 )"
+    __mv "${__PATH}" "${__PROJECT2_PATH}/${__NAME}"
+  done
+# remove all files in the array
+  for __PATH in "${__PATHS_TO_PULL[@]}"; do
+    __rm "${__PROJECT2_PATH}/${__PATH}"
+  done
+# apply some overrides
+  for __TMP_DEVICE_PATH in "${__TMP}/device_overrides/"*; do
+    __DEVICE="$( basename "${__TMP_DEVICE_PATH}" )"
+
+    for __OVERRIDE_DIR_PATH in "${__TMP_DEVICE_PATH}/"*; do
+      __OVERRIDE_TYPE="$( basename "${__OVERRIDE_DIR_PATH}" )"
+      
+      case "${__OVERRIDE_TYPE}" in
+        projects)
+          # skip
+          ;;
+        distributions)
+          # skip
+          ;;
+        *)
+          # move the directory to the correct location
+          for __PATH in "${__OVERRIDE_DIR_PATH}"/*; do
+            __PATHNAME="$( basename "${__PATH}" )"
+            __mkdir "${__PROJECT2_PATH}/${__OVERRIDE_TYPE}/${__PATHNAME}/"
+            __cp "${__PATH}/*" "${__PROJECT2_PATH}/${__OVERRIDE_TYPE}/${__PATHNAME}/"
+          done
+          ;;
+      esac
     done
   done
 
+# move patches
+  __mkdir "${__PROJECT2_PATH}/projects/Rockchip/patches"
+  __mv "${__PROJECT2_PATH}/projects/Rockchip/packages/linux/patches" "${__PROJECT2_PATH}/projects/Rockchip/patches/linux"
+# rename linux directories
+  __mv "${__PROJECT2_PATH}/packages/kernel/linux-drivers" "${__PROJECT2_PATH}/packages/kernel/drivers"
+  __mv "${__PROJECT2_PATH}/packages/kernel/linux-firmware" "${__PROJECT2_PATH}/packages/kernel/firmware"
+# remove dot files and dot directories
+  for __PATH in "${__PROJECT2_PATH}"/.*; do
+    __PATHS_TO_PULL+=("${__PATH}")
+  done
+# remove custom make scripts
+  for __PATH in "${__PROJECT2_PATH}"/*3*; do
+    __PATHS_TO_PULL+=("${__PATH}")
+  done
+# remove markdown files
+  for __PATH in "${__PROJECT2_PATH}"/*.md; do
+    __PATHS_TO_PULL+=("${__PATH}")
+  done
+# remove Sarasa font patches
+  for __PATH in $( find "${__PROJECT2_PATH}" -type f -name "*-cn-*.patch" ); do
+    __PATHS_TO_PULL+=("${__PATH}")
+  done
+  for __PATH in $( find "${__PROJECT2_PATH}" -type f -iname "Sarasa*ttf" ); do
+    __PATHS_TO_PULL+=("${__PATH}")
+  done
+  for __PATH in $( find "${__PROJECT2_PATH}" -type d -iname "Sarasa*ttf" ); do
+    __PATHS_TO_PULL+=("${__PATH}")
+  done
+# remove all files in the array
+  for __PATH in "${__PATHS_TO_PULL[@]}"; do
+    __PROJECT1_VERSION=$( __to_p1 "${__PATH}" )
+    __rm "${__PATH}"
+    if [ -e "${__PROJECT1_VERSION}" ]; then
+      __cp "${__PROJECT1_VERSION}" "${__PATH}"
+    fi
+  done
+# Sarasa font patches
+  for __PROJECT2_VERSION in $( grep -lr 'Sarasa.*.ttf' "${__PROJECT2_PATH}" ); do
+    __PROJECT1_VERSION=$( __to_p1 "${__PROJECT2_VERSION}" )
+    if [ ! -e "${__PROJECT1_VERSION}" ]; then
+      __rm "${__PROJECT2_VERSION}"
+      continue
+    fi
+  # compare line-by-line
+    __PROJECT1_LINES=$( cat "${__PROJECT1_VERSION}" | wc -l )
+    __PROJECT2_LINES=$( cat "${__PROJECT2_VERSION}" | wc -l )
+    if [ ${__PROJECT1_LINES} -eq ${__PROJECT2_LINES} ]; then
+      for __LINE_NUMBER in $( seq 1 "${__PROJECT1_LINES}" ); do
+        __PROJECT1_LINE=$( sed -n "${__LINE_NUMBER}p" "${__PROJECT1_VERSION}" )
+        __PROJECT2_LINE=$( sed -n "${__LINE_NUMBER}p" "${__PROJECT2_VERSION}" )
+        if [ "${__PROJECT1_LINE}" != "${__PROJECT2_LINE}" ]; then
+          sed -i "${__PROJECT2_VERSION}" -e "${__LINE_NUMBER}s|^.*$|${__PROJECT1_LINE}|g"
+          __log "sed -i \"${__PROJECT2_VERSION}\" -e \"${__LINE_NUMBER}s|^.*$|${__PROJECT1_LINE}|g\""
+          __task_advance
+        fi
+      done
+    fi
+  done
+  for __PATH in $( find "${__PROJECT1_PATH}/config/emulators" -type f -name "*.conf" ); do
+  # for emulators, we want to preserve configs that don't exist but overwrite any that do
+    __cp "${__PATH}" "${__PROJECT2_PATH}/config/emulators/"
+  done
+__task_complete
+
+# check the phrase "tocon"
+__task_begin "Checking tocon in ${__PROJECT2_NAME}"
+  while IFS= read -r -d '' __PROJECT2_VERSION; do
+  # check if tocon is commented out in Project 1
+    __IS_P2_TOCON_COMMENTED=$( grep -c "# tocon" "${__PROJECT2_VERSION}" )
+    __PROJECT1_VERSION=$( __to_p1 "${__PROJECT2_VERSION}" )
+    if [ ! -e "${__PROJECT1_VERSION}" ]; then
+      continue
+    fi
+    __IS_P1_TOCON_COMMENTED=$( grep -c "# tocon" "${__PROJECT1_VERSION}" )
+    if [ "${__IS_P1_TOCON_COMMENTED}" -eq "${__IS_P2_TOCON_COMMENTED}" ]; then
+      continue
+    elif [ "${__IS_P1_TOCON_COMMENTED}" -eq "0" ]; then
+      # uncomment tocon in Project 2
+      sed -i "s|# tocon|tocon|g" "${__PROJECT2_VERSION}"
+      __log "sed -i \"s|# tocon|tocon|g\" \"${__PROJECT2_VERSION}\""
+    else
+      # comment out tocon in Project 2
+      sed -i "s|tocon|# tocon|g" "${__PROJECT2_VERSION}"
+      __log "sed -i \"s|tocon|# tocon|g\" \"${__PROJECT2_VERSION}\""
+    fi
+    __task_advance
+  done < <(grep -rlZ -- "\btocon\b" "${__PROJECT2_PATH}")
+__task_complete
+
+# switch jslisten to set_kill in Project 2
+__task_begin "Swapping jslisten and set_kill in ${__PROJECT2_NAME}"
+  while IFS= read -r -d '' __PROJECT2_VERSION; do
+    __PROJECT1_VERSION=$( __to_p1 "${__PROJECT2_VERSION}" )
+    if [ ! -e "${__PROJECT1_VERSION}" ]; then
+      continue
+    fi
+    __IS_P2_JSLISTEN=$( grep -c "jslisten" "${__PROJECT2_VERSION}" )
+    __IS_P1_JSLISTEN=$( grep -c "jslisten" "${__PROJECT1_VERSION}" )
+    if [ "${__IS_P1_JSLISTEN}" -eq "${__IS_P2_JSLISTEN}" ]; then
+      continue
+    elif [ "${__IS_P1_JSLISTEN}" -eq "0" ]; then
+      # switch jslisten to set_kill in Project 2
+      sed -i "s|jslisten|set_kill|g" "${__PROJECT2_VERSION}"
+      __log "sed -i \"s|jslisten|set_kill|g\" \"${__PROJECT2_VERSION}\""
+    else
+      # switch set_kill to jslisten in Project 2
+      sed -i "s|set_kill|jslisten|g" "${__PROJECT2_VERSION}"
+      __log "sed -i \"s|set_kill|jslisten|g\" \"${__PROJECT2_VERSION}\""
+    fi
+    __task_advance
+  done < <(grep -rlZ -- "\bjslisten|set_kill\b" "${__PROJECT2_PATH}")
+__task_complete
+
+__task_begin "Renaming ${__PROJECT2_NAME} to ${__PROJECT1_NAME}"
 # find all directories in project 1 that contain project 1's name (case insensitive)
   for __PROJECT1_VERSION in $(find "${__PROJECT1_PATH}" -type d -iname "*${__PROJECT1_NAME}*"); do
     __PROJECT2_DESTINATION="$( __to_p2 "${__PROJECT1_VERSION}" )"
@@ -42,7 +209,7 @@ __task_begin "Restructuring ${__PROJECT2_NAME} to mirror ${__PROJECT1_NAME}"
       continue
     fi
   # if the DIRECTORY exists in project 2 with another known project name, rename it
-    for __PROJECT_NAME in "${__KNOWN_PROJECT_NAMES[@]}"; do
+    for __PROJECT_NAME in "${__REPLACE_NAMES[@]}"; do
       __PROJECT2_VERSION="$( echo "${__PROJECT2_DESTINATION}" | sed -e "s/${__PROJECT1_NAME}/${__PROJECT_NAME}/gi" )"
       if [ -e "${__PROJECT2_VERSION}" ]; then
         __mv "${__PROJECT2_VERSION}" "${__PROJECT2_DESTINATION}"
@@ -55,7 +222,6 @@ __task_begin "Restructuring ${__PROJECT2_NAME} to mirror ${__PROJECT1_NAME}"
       fi
     done
   done
-
 # find all files in project 1 that contain project 1's name (case insensitive)
   for __PROJECT1_VERSION in $(find "${__PROJECT1_PATH}" -type f -iname "*${__PROJECT1_NAME}*"); do
     __PROJECT2_DESTINATION="$( __to_p2 "${__PROJECT1_VERSION}" )"
@@ -64,7 +230,7 @@ __task_begin "Restructuring ${__PROJECT2_NAME} to mirror ${__PROJECT1_NAME}"
       continue
     fi
   # if the FILE exists in project 2 with another known project name, rename it
-    for __PROJECT_NAME in "${__KNOWN_PROJECT_NAMES[@]}"; do
+    for __PROJECT_NAME in "${__REPLACE_NAMES[@]}"; do
       __PROJECT2_VERSION="$( echo "${__PROJECT2_DESTINATION}" | sed -e "s/${__PROJECT1_NAME}/${__PROJECT_NAME}/gi" )"
       if [ -e "${__PROJECT2_VERSION}" ]; then
         __mv "${__PROJECT2_VERSION}" "${__PROJECT2_DESTINATION}"
@@ -77,17 +243,39 @@ __task_begin "Restructuring ${__PROJECT2_NAME} to mirror ${__PROJECT1_NAME}"
       fi
     done
   done
-
-  __mkdir "${__PROJECT2_PATH}/projects/Rockchip/patches"
-  __mv "${__PROJECT2_PATH}/projects/Rockchip/packages/linux/patches" "${__PROJECT2_PATH}/projects/Rockchip/patches/linux"
-  __mv "${__PROJECT2_PATH}/packages/kernel/linux-drivers" "${__PROJECT2_PATH}/packages/kernel/drivers"
-  __mv "${__PROJECT2_PATH}/packages/kernel/linux-firmware" "${__PROJECT2_PATH}/packages/kernel/firmware"
+  __sync_project_names
 __task_complete
 
-# find the phrase "tocon" in Project 2 and comment all instances by preceding with '# '
-for __FILE_TO_COMMENT in $( grep -rl "tocon" "${__PROJECT2_PATH}" ); do
-  sed -i "${__FILE_TO_COMMENT}" -e 's|\btocon\b|# tocon|g'
-done
+__task_begin "Updating ${__PROJECT2_NAME} package variables to match ${__PROJECT1_NAME}"
+  __sync_package_variables
+__task_complete
+
+__task_begin "Copying missing quirks from ${__PROJECT2_NAME} to ${__PROJECT1_NAME}"
+  for __PATH in "${__PROJECT2_PATH}/packages/hardware/quirks/devices"/*; do
+    __PROJECT1_VERSION=$( __to_p1 "${__PATH}" )
+    if [ ! -e "${__PROJECT1_VERSION}" ]; then
+      __cp "${__PATH}" "${__PROJECT1_VERSION}"
+    fi
+  done
+__task_complete
+
+__task_begin "Copying missing firmware from ${__PROJECT2_NAME} to ${__PROJECT1_NAME}"
+  for __PATH in "${__PROJECT2_PATH}/packages/kernel/firmware"/*; do
+    __PROJECT1_VERSION=$( __to_p1 "${__PATH}" )
+    if [ ! -e "${__PROJECT1_VERSION}" ]; then
+      __cp "${__PATH}" "${__PROJECT1_VERSION}"
+    fi
+  done
+__task_complete
+
+__task_begin "Copying missing drivers from ${__PROJECT2_NAME} to ${__PROJECT1_NAME}"
+  for __PATH in "${__PROJECT2_PATH}/packages/kernel/drivers"/*; do
+    __PROJECT1_VERSION=$( __to_p1 "${__PATH}" )
+    if [ ! -e "${__PROJECT1_VERSION}" ]; then
+      __cp "${__PATH}" "${__PROJECT1_VERSION}"
+    fi
+  done
+__task_complete
 
 for __DEVICE in "E5P" "E6P"; do
   __task_begin "Creating RK3566-BSP-${__DEVICE} directories in ${__PROJECT1_NAME}"
@@ -101,7 +289,7 @@ for __DEVICE in "E5P" "E6P"; do
     __DESTINATION_FILE="${__PROJECT1_PATH}/packages/kernel/linux/package.mk"
     __LINE_NUMBER=$( grep -n "X55)" "${__DESTINATION_FILE}" | cut -d: -f1 )
     __insert_text "  RK3566-BSP-${__DEVICE})" "${__DESTINATION_FILE}" "${__LINE_NUMBER}"
-    for __OVERRIDE in $( grep -zo 'X55)[^;;]*;;' ${__PROJECT2_PATH}/device_overrides/${__DEVICE}/projects/Rockchip/packages/linux/package.mk | tail -n +2 | head -n -1 | tr '\n' ' ' ); do
+    for __OVERRIDE in $( grep -zo 'X55)[^;;]*;;' ${__TMP}/device_overrides/${__DEVICE}/projects/Rockchip/packages/linux/package.mk | tail -n +2 | head -n -1 | tr '\n' ' ' ); do
       __LINE_NUMBER=$(( __LINE_NUMBER + 1 ))
       __insert_text "    ${__OVERRIDE}" "${__DESTINATION_FILE}" "${__LINE_NUMBER}"
     done
@@ -126,132 +314,19 @@ for __DEVICE in "E5P" "E6P"; do
     case ${__DEVICE} in
       E5P)
         __cp "${__PROJECT2_PATH}/packages/hardware/quirks/devices/GameMT E5 Plus" "${__PROJECT1_PATH}/packages/hardware/quirks/devices/"
+        sed -i "${__PROJECT1_PATH}/projects/Rockchip/devices/RK3566-BSP-E5P/options" -e 's|fbcon=rotate:3|fbcon=rotate:1|g'
+        __log "sed -i \"${__PROJECT1_PATH}/projects/Rockchip/devices/RK3566-BSP-E5P/options\" -e 's|fbcon=rotate:3|fbcon=rotate:1|g'"
+        __task_advance
       ;;
       E6P)
         __cp "${__PROJECT2_PATH}/packages/hardware/quirks/devices/GameMT E6 Plus" "${__PROJECT1_PATH}/packages/hardware/quirks/devices/"
+        sed -i "${__PROJECT1_PATH}/projects/Rockchip/devices/RK3566-BSP-E6P/options" -e 's|fbcon=rotate:3|fbcon=rotate:1|g'
+        __log "sed -i \"${__PROJECT1_PATH}/projects/Rockchip/devices/RK3566-BSP-E6P/options\" -e 's|fbcon=rotate:3|fbcon=rotate:1|g'"
+        __task_advance
       ;;
     esac
   __task_complete
 done
-#__rm "${__PROJECT2_PATH}/device_overrides"
-
-__task_begin "Copying missing firmware from ${__PROJECT2_NAME} to ${__PROJECT1_NAME}"
-  for __PATH in "${__PROJECT2_PATH}/packages/kernel/firmware"/*; do
-    __PROJECT1_VERSION=$( __to_p1 "${__PATH}" )
-    if [ ! -e "${__PROJECT1_VERSION}" ]; then
-      __cp "${__PATH}" "${__PROJECT1_VERSION}"
-    fi
-  done
-__task_complete
-
-__task_begin "Copying missing drivers from ${__PROJECT2_NAME} to ${__PROJECT1_NAME}"
-  for __PATH in "${__PROJECT2_PATH}/packages/kernel/drivers"/*; do
-    __PROJECT1_VERSION=$( __to_p1 "${__PATH}" )
-    if [ ! -e "${__PROJECT1_VERSION}" ]; then
-      __cp "${__PATH}" "${__PROJECT1_VERSION}"
-    fi
-  done
-__task_complete
-
-__task_begin "Overwriting files in ${__PROJECT2_NAME} irrelevant to ${__PROJECT1_NAME}"
-  __PATHS_TO_RM=(
-    "${__PROJECT2_PATH}/config/addon"
-    "${__PROJECT2_PATH}/config/docker"
-    "${__PROJECT2_PATH}/config/noobs"
-    "${__PROJECT2_PATH}/device_overrides"
-    "${__PROJECT2_PATH}/distributions"
-    "${__PROJECT2_PATH}/documentation"
-    "${__PROJECT2_PATH}/licenses"
-    "${__PROJECT2_PATH}/templates"
-    "${__PROJECT2_PATH}/tools_host"
-    "${__PROJECT2_PATH}/Dockerfile"
-    "${__PROJECT2_PATH}/post-update"
-  )
-  for __PATH in "${__PROJECT2_PATH}"/.*; do
-    __PATHS_TO_RM+=("${__PATH}")
-  done
-  for __PATH in "${__PROJECT2_PATH}"/*3*; do
-    __PATHS_TO_RM+=("${__PATH}")
-  done
-  for __PATH in "${__PROJECT2_PATH}"/*.md; do
-    __PATHS_TO_RM+=("${__PATH}")
-  done
-  for __PATH in $( find "${__PROJECT2_PATH}" -type f -name "Sarasa*.ttf" ); do
-    __PATHS_TO_RM+=("${__PATH}")
-  done
-  for __PATH in $( find "${__PROJECT2_PATH}" -type d -name "sarasa-fonts-ttf" ); do
-    __PATHS_TO_RM+=("${__PATH}")
-  done
-  for __PATH in $( find "${__PROJECT2_PATH}" -type f -name "*-cn-*.patch" ); do
-    __PATHS_TO_RM+=("${__PATH}")
-  done
-  for __PATH in $( grep -lr 'Sarasa*.ttf' "${__PROJECT2_PATH}" ); do
-    __PATHS_TO_RM+=("${__PATH}")
-  done
-  for __PATH in ${__PATHS_TO_RM[@]}; do
-    __rm "${__PATH}"
-    __PROJECT1_VERSION=$( __to_p1 "${__PATH}" )
-    if [ -e "${__PROJECT1_VERSION}" ]; then
-      __cp "${__PROJECT1_VERSION}" "${__PATH}"
-    fi
-  done
-  for __PATH in $( find "${__PROJECT1_PATH}/config/emulators" -type f -name "*.conf" ); do
-  # for emulators, we want to preserve configs that don't exist but overwrite any that do
-    __cp "${__PATH}" "${__PROJECT2_PATH}/config/emulators/"
-  done
-__task_complete
-
-__task_begin "Updating ${__PROJECT2_NAME} package versions to match ${__PROJECT1_NAME}"
-  for __PROJECT2_FILE in $( find "${__PROJECT2_PATH}" -type f -iname '*.mk' | sort ); do
-    __PROJECT1_FILE=$( __to_p1 "${__PROJECT2_FILE}" )
-    if [ ! -e "${__PROJECT1_FILE}" ]; then
-      continue
-    fi
-    __FILE_DIFF=$( diff "${__PROJECT1_FILE}" "${__PROJECT2_FILE}" )
-    if [ -z "${__FILE_DIFF}" ]; then
-      continue
-    fi
-    __OLD_VERSION="$( __extract_variable "${__PROJECT2_FILE}" "PKG_VERSION" )"
-    __PKG_VERSION=""
-    for __VARNAME in "PKG_NAME" "PKG_LICENSE" "PKG_SITE" "PKG_URL" "PKG_VERSION"; do
-      __VAR=$( __extract_variable "${__PROJECT1_FILE}" "${__VARNAME}" )
-      if [ "${__VARNAME}" == "PKG_VERSION" ]; then
-        __PKG_VERSION="${__VAR}"
-      fi
-      if [ ! -z "${__VAR}" ]; then
-        __replace_variable "${__PROJECT2_FILE}" "${__VARNAME}" "${__VAR}"
-      fi
-    done
-    __log "${__PROJECT2_FILE} ${__OLD_VERSION} -> ${__PKG_VERSION}"
-  done
-__task_complete
-
-__task_begin "Creating mirrored device directories"
-  for __PATH in $( find "${__PROJECT2_PATH}" -type d -name "RK3566" ); do
-    __PARENT=$( dirname "${__PATH}" )
-    __cp "${__PATH}" "${__PARENT}/RK3566-BSP"
-    for __SIBLING in "${__PARENT}"/*; do
-      if [[ "${__SIBLING}" =~ ^RK3566* ]]; then
-        continue
-      fi
-      __PROJECT1_VERSION=$( __to_p1 "${__SIBLING}" )
-      if [ -e "${__PROJECT1_VERSION}" ]; then
-        __rm "${__SIBLING}"
-        __cp "${__PROJECT1_VERSION}" "${__SIBLING}"
-      fi
-    done
-  done
-  for __PATH in $( find "${__PROJECT2_PATH}" -type d -name "RK3566-X55" ); do
-    __PARENT=$( dirname "${__PATH}" )
-    __cp "${__PATH}" "${__PARENT}/RK3566-BSP-X55"
-    __cp "${__PATH}" "${__PARENT}/RK3566-BSP-E5P"
-    __cp "${__PATH}" "${__PARENT}/RK3566-BSP-E6P"
-  done
-__task_complete
-
-__task_begin "Renaming project to ${__PROJECT1_NAME} in files"
-  __sync_project_names
-__task_complete
 
 # remove null bytes from log file
 sed -i 's/\x0//g' "${__LOG}"
@@ -265,5 +340,6 @@ if [ ! -z "${__CODE_BIN}" ]; then
   "${__CODE_BIN}" -d "${__PROJECT2_PATH}" "${__PROJECT1_PATH}" > /dev/null 2>&1
   "${__CODE_BIN}" "${__LOG}" > /dev/null 2>&1
   sleep 1
-  exit 0
 fi
+
+__rm "${__TMP}"
