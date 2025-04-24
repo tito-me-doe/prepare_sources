@@ -1,4 +1,5 @@
 #!/bin/bash
+
 __PROJECT1_REPO_URL="git@github.com:RetroGFX/UnofficialOS.git"
 __PROJECT1_BRANCH="uos-realign"
 
@@ -27,6 +28,7 @@ __PATHS_TO_PULL=(
   "post-update"
   "templates"
   "tools_host"
+  "packages/apps/fileman/package.mk"
 )
 
 __SLF="$( basename "$0" )"
@@ -39,7 +41,7 @@ __TMP="$(mktemp -d)"
 
 # cleanup TMP on exit
 for __KILLSIG in HUP INT QUIT TERM; do
-  trap "rm -rf ${__TMP}" "${__KILLSIG}"
+  trap "rm -rf ${__TMP}; echo ''; exit" "${__KILLSIG}"
 done
 
 source "${__CWD}/functions"
@@ -57,6 +59,15 @@ __task_begin "Rearranging ${__PROJECT2_NAME} to match ${__PROJECT1_NAME}"
     __NAME="$( basename "${__PATH}" | cut -d_ -f1 )"
     __mv "${__PATH}" "${__PROJECT2_PATH}/${__NAME}"
   done
+# create BSP directories
+  for __PATH in $(find "${__PROJECT2_PATH}" -type d -name "RK3566"); do
+    __PARENT="$( dirname "${__PATH}" )"
+    __cp "${__PATH}" "${__PARENT}/RK3566-BSP"
+  done
+  for __PATH in $(find "${__PROJECT2_PATH}" -type d -name "RK3566-X55"); do
+    __PARENT="$( dirname "${__PATH}" )"
+    __cp "${__PATH}" "${__PARENT}/RK3566-BSP-X55"
+  done
 # remove all files in the array
   for __PATH in "${__PATHS_TO_PULL[@]}"; do
     __rm "${__PROJECT2_PATH}/${__PATH}"
@@ -64,10 +75,8 @@ __task_begin "Rearranging ${__PROJECT2_NAME} to match ${__PROJECT1_NAME}"
 # apply some overrides
   for __TMP_DEVICE_PATH in "${__TMP}/device_overrides/"*; do
     __DEVICE="$( basename "${__TMP_DEVICE_PATH}" )"
-
     for __OVERRIDE_DIR_PATH in "${__TMP_DEVICE_PATH}/"*; do
-      __OVERRIDE_TYPE="$( basename "${__OVERRIDE_DIR_PATH}" )"
-      
+      __OVERRIDE_TYPE="$( basename "${__OVERRIDE_DIR_PATH}" )"  
       case "${__OVERRIDE_TYPE}" in
         projects)
           # skip
@@ -85,8 +94,11 @@ __task_begin "Rearranging ${__PROJECT2_NAME} to match ${__PROJECT1_NAME}"
           ;;
       esac
     done
+    for __PATH in $(find "${__PROJECT2_PATH}" -type d -name "RK3566-X55"); do
+      __PARENT="$( dirname "${__PATH}" )"
+      __cp "${__PATH}" "${__PARENT}/RK3566-BSP-${__DEVICE}"
+    done
   done
-
 # move patches
   __mkdir "${__PROJECT2_PATH}/projects/Rockchip/patches"
   __mv "${__PROJECT2_PATH}/projects/Rockchip/packages/linux/patches" "${__PROJECT2_PATH}/projects/Rockchip/patches/linux"
@@ -138,8 +150,10 @@ __task_begin "Rearranging ${__PROJECT2_NAME} to match ${__PROJECT1_NAME}"
         __PROJECT1_LINE=$( sed -n "${__LINE_NUMBER}p" "${__PROJECT1_VERSION}" )
         __PROJECT2_LINE=$( sed -n "${__LINE_NUMBER}p" "${__PROJECT2_VERSION}" )
         if [ "${__PROJECT1_LINE}" != "${__PROJECT2_LINE}" ]; then
-          sed -i "${__PROJECT2_VERSION}" -e "${__LINE_NUMBER}s|^.*$|${__PROJECT1_LINE}|g"
-          __log "sed -i \"${__PROJECT2_VERSION}\" -e \"${__LINE_NUMBER}s|^.*$|${__PROJECT1_LINE}|g\""
+          if [[ "${__PROJECT1_LINE}" == *".ttf"* ]]; then
+            sed -i "${__PROJECT2_VERSION}" -e "${__LINE_NUMBER}s|^.*$|${__PROJECT1_LINE}|g"
+            __log "sed -i \"${__PROJECT2_VERSION}\" -e \"${__LINE_NUMBER}s|^.*$|${__PROJECT1_LINE}|g\""
+          fi
           __task_advance
         fi
       done
@@ -152,7 +166,7 @@ __task_begin "Rearranging ${__PROJECT2_NAME} to match ${__PROJECT1_NAME}"
 __task_complete
 
 # check the phrase "tocon"
-__task_begin "Checking tocon in ${__PROJECT2_NAME}"
+__task_begin "Syncing tocon lines in ${__PROJECT2_NAME}"
   while IFS= read -r -d '' __PROJECT2_VERSION; do
   # check if tocon is commented out in Project 1
     __IS_P2_TOCON_COMMENTED=$( grep -c "# tocon" "${__PROJECT2_VERSION}" )
@@ -176,15 +190,15 @@ __task_begin "Checking tocon in ${__PROJECT2_NAME}"
   done < <(grep -rlZ -- "\btocon\b" "${__PROJECT2_PATH}")
 __task_complete
 
-# switch jslisten to set_kill in Project 2
+# swap jslisten and set_kill in Project 2
 __task_begin "Swapping jslisten and set_kill in ${__PROJECT2_NAME}"
   while IFS= read -r -d '' __PROJECT2_VERSION; do
     __PROJECT1_VERSION=$( __to_p1 "${__PROJECT2_VERSION}" )
     if [ ! -e "${__PROJECT1_VERSION}" ]; then
       continue
     fi
-    __IS_P2_JSLISTEN=$( grep -c "jslisten" "${__PROJECT2_VERSION}" )
     __IS_P1_JSLISTEN=$( grep -c "jslisten" "${__PROJECT1_VERSION}" )
+    __IS_P2_JSLISTEN=$( grep -c "jslisten" "${__PROJECT2_VERSION}" )
     if [ "${__IS_P1_JSLISTEN}" -eq "${__IS_P2_JSLISTEN}" ]; then
       continue
     elif [ "${__IS_P1_JSLISTEN}" -eq "0" ]; then
@@ -197,7 +211,7 @@ __task_begin "Swapping jslisten and set_kill in ${__PROJECT2_NAME}"
       __log "sed -i \"s|set_kill|jslisten|g\" \"${__PROJECT2_VERSION}\""
     fi
     __task_advance
-  done < <(grep -rlZ -- "\bjslisten|set_kill\b" "${__PROJECT2_PATH}")
+  done < <(grep -rlZE -- "\bjslisten|set_kill\b" "${__PROJECT2_PATH}")
 __task_complete
 
 __task_begin "Renaming ${__PROJECT2_NAME} to ${__PROJECT1_NAME}"
