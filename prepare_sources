@@ -295,7 +295,17 @@ for __DEVICE in "E5P" "E6P"; do
   __task_begin "Creating RK3566-BSP-${__DEVICE} directories in ${__PROJECT1_NAME}"
     for __PATH in $( find "${__PROJECT1_PATH}" -type d -name "RK3566-BSP-X55" ); do
       __PARENT="$( dirname "${__PATH}" )"
-      __cp "${__PATH}" "${__PARENT}/RK3566-BSP-${__DEVICE}"
+      __mkdir "${__PARENT}/RK3566-BSP-X55"
+      for __SUBPATH in "${__PATH}"/*; do
+        __SUBPATH_NAME=$( basename "${__SUBPATH}" )
+	if [ "${__SUBPATH_NAME}" == "options" ]; then
+	  __cp "${__SUBPATH}" "${__PARENT}/RK3566-BSP-X55/${__SUBPATH_NAME}"
+	else
+          ln -s "${__SUBPATH}" "${__PARENT}/RK3566-BSP-X55/${__SUBPATH_NAME}"
+	  __log "ln -s \"${__SUBPATH}\" \"${__PARENT}/RK3566-BSP-X55/${__SUBPATH_NAME}\""
+	  __task_advance
+	fi
+      done
     done
   __task_complete
 
