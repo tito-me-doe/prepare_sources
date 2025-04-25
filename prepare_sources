@@ -37,10 +37,9 @@ __PID="$$"
 __OUT="${__CWD}/output"
 __SRC="${__CWD}/.sources"
 __LOG="${__OUT}/${__SLF}.${__PID}.log"
-__TMP="$(mktemp -d)"
-
+__TMP="$( mktemp -d )"
 # cleanup TMP on exit
-for __KILLSIG in HUP INT QUIT TERM; do
+for __KILLSIG in EXIT HUP INT QUIT TERM; do
   trap "rm -rf ${__TMP}; echo ''; exit" "${__KILLSIG}"
 done
 
@@ -94,7 +93,7 @@ __task_begin "Rearranging ${__PROJECT2_NAME} to match ${__PROJECT1_NAME}"
           ;;
       esac
     done
-    for __PATH in $(find "${__PROJECT2_PATH}" -type d -name "RK3566-X55"); do
+    for __PATH in $(find "${__PROJECT2_PATH}" -type d -name "RK3566-BSP-X55"); do
       __PARENT="$( dirname "${__PATH}" )"
       __cp "${__PATH}" "${__PARENT}/RK3566-BSP-${__DEVICE}"
     done
@@ -295,16 +294,16 @@ for __DEVICE in "E5P" "E6P"; do
   __task_begin "Creating RK3566-BSP-${__DEVICE} directories in ${__PROJECT1_NAME}"
     for __PATH in $( find "${__PROJECT1_PATH}" -type d -name "RK3566-BSP-X55" ); do
       __PARENT="$( dirname "${__PATH}" )"
-      __mkdir "${__PARENT}/RK3566-BSP-X55"
+      __mkdir "${__PARENT}/RK3566-BSP-${__DEVICE}"
       for __SUBPATH in "${__PATH}"/*; do
         __SUBPATH_NAME=$( basename "${__SUBPATH}" )
-	if [ "${__SUBPATH_NAME}" == "options" ]; then
-	  __cp "${__SUBPATH}" "${__PARENT}/RK3566-BSP-X55/${__SUBPATH_NAME}"
-	else
-          ln -s "${__SUBPATH}" "${__PARENT}/RK3566-BSP-X55/${__SUBPATH_NAME}"
-	  __log "ln -s \"${__SUBPATH}\" \"${__PARENT}/RK3566-BSP-X55/${__SUBPATH_NAME}\""
-	  __task_advance
-	fi
+        if [ "${__SUBPATH_NAME}" == "options" ]; then
+          __cp "${__SUBPATH}" "${__PARENT}/RK3566-BSP-${__DEVICE}/${__SUBPATH_NAME}"
+        else
+          ln -s "${__SUBPATH}" "${__PARENT}/RK3566-BSP-${__DEVICE}/${__SUBPATH_NAME}"
+          __log "ln -s \"${__SUBPATH}\" \"${__PARENT}/RK3566-BSP-${__DEVICE}/${__SUBPATH_NAME}\""
+          __task_advance
+        fi
       done
     done
   __task_complete
